@@ -2201,6 +2201,7 @@ class _MemberDetailPageState extends State<MemberDetailPage> {
   }
 }
 
+//
 class _LegendItem extends StatelessWidget {
   final Color color;
   final String label;
