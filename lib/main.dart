@@ -75,6 +75,7 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
   String? _selectedDataTime = '20252';
   String? _selectedRank = '';
   bool _searched = false;
+
   final List<Map<String, String>> _genderList = [
     {'label': '', 'value': ''},
     {'label': '男性', 'value': '1'},
@@ -83,7 +84,8 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
   final List<String> _dataTimeList = ['', '20252', '20251', '20242', '20021'];
   final List<String> _rankList = ['', 'A1', 'A2', 'B1', 'B2'];
   List<Map<String, dynamic>> _allMembers = [];
-  List<Map<String, dynamic>> _members = [];
+  List<Map<String, dynamic>> _filteredMembers = []; // ←検索後保持用
+  List<Map<String, dynamic>> _members = [];         // ←表示リスト
 
   // ページネーション用
   final ScrollController _scrollController = ScrollController();
@@ -109,17 +111,15 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
 
   void _onScroll() {
     if (_scrollController.position.pixels >=
-            _scrollController.position.maxScrollExtent - 100 &&
+        _scrollController.position.maxScrollExtent - 100 &&
         !_isLoadingMore &&
-        _hasMore) {
+        _hasMore &&
+        _searched) {
       _loadMoreMembers();
     }
   }
 
   void _searchMembers() {
-    setState(() {
-      _searched = true;
-    });
     if (_allMembers.isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -128,7 +128,7 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
     }
     if (_nameController.text.isEmpty &&
         _codeController.text.isEmpty &&
-        _selectedGender == '' &&
+        (_selectedGender == null || _selectedGender!.isEmpty) &&
         (_selectedDataTime == null || _selectedDataTime!.isEmpty) &&
         (_selectedRank == null || _selectedRank!.isEmpty)) {
       ScaffoldMessenger.of(
@@ -136,69 +136,63 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
       ).showSnackBar(SnackBar(content: Text('少なくとも1つの検索条件を入力してください')));
       return;
     }
-    final filtered =
-        _allMembers.where((member) {
-          if (_nameController.text.isNotEmpty &&
-              !(member['Kana3']?.toString() ?? '').contains(
-                _nameController.text,
-              )) {
-            return false;
-          }
-          if (_codeController.text.isNotEmpty &&
-              !(member['Number']?.toString() ?? '').startsWith(
-                _codeController.text,
-              )) {
-            return false;
-          }
-          if (_selectedGender != null &&
-              _selectedGender!.isNotEmpty &&
-              (member['Sex']?.toString() ?? '') != _selectedGender) {
-            return false;
-          }
-          if (_selectedDataTime != null &&
-              _selectedDataTime!.isNotEmpty &&
-              (member['DataTime']?.toString() ?? '') != _selectedDataTime) {
-            return false;
-          }
-          if (_selectedRank != null &&
-              _selectedRank!.isNotEmpty &&
-              (member['Rank']?.toString() ?? '') != _selectedRank) {
-            return false;
-          }
-          return true;
-        }).toList();
+
+    final filtered = _allMembers.where((member) {
+      if (_nameController.text.isNotEmpty &&
+          !(member['Kana3']?.toString() ?? '').contains(_nameController.text)) {
+        return false;
+      }
+      if (_codeController.text.isNotEmpty &&
+          !(member['Number']?.toString() ?? '').startsWith(_codeController.text)) {
+        return false;
+      }
+      if (_selectedGender != null &&
+          _selectedGender!.isNotEmpty &&
+          (member['Sex']?.toString() ?? '') != _selectedGender) {
+        return false;
+      }
+      if (_selectedDataTime != null &&
+          _selectedDataTime!.isNotEmpty &&
+          (member['DataTime']?.toString() ?? '') != _selectedDataTime) {
+        return false;
+      }
+      if (_selectedRank != null &&
+          _selectedRank!.isNotEmpty &&
+          (member['Rank']?.toString() ?? '') != _selectedRank) {
+        return false;
+      }
+      return true;
+    }).toList();
+
     setState(() {
+      _searched = true;
+      _filteredMembers = filtered;
       _members = [];
       _loadedCount = 0;
       _hasMore = true;
     });
-    // ページネーション初回ロード
-    _loadMoreMembers(filteredList: filtered);
+    _loadMoreMembers(initial: true);
   }
 
-  void _loadMoreMembers({List<Map<String, dynamic>>? filteredList}) {
+  /// ページング補助：初回（検索直後）と追加ロードの両方で使う
+  void _loadMoreMembers({bool initial = false}) {
+    if (_isLoadingMore) return;
     setState(() => _isLoadingMore = true);
-    final currentList = filteredList ?? (_members.isNotEmpty ? _members : []);
-    //final currentList = filteredList ?? _members.isNotEmpty ? _members : [];
-    // 新しい場合は手動でフィルタ
-    final source =
-        filteredList ??
-        _allMembers.where((member) => _members.contains(member)).toList();
+
     int start = _loadedCount;
-    int end =
-        (_loadedCount + _pageSize < source.length)
-            ? _loadedCount + _pageSize
-            : source.length;
-    final nextMembers = source.sublist(start, end);
+    int end = (_loadedCount + _pageSize < _filteredMembers.length)
+        ? _loadedCount + _pageSize
+        : _filteredMembers.length;
+    final nextMembers = _filteredMembers.sublist(start, end);
+
     setState(() {
-      if (filteredList != null) {
-        // 新しい検索
+      if (initial) {
         _members = nextMembers;
       } else {
         _members.addAll(nextMembers);
       }
       _loadedCount = end;
-      _hasMore = _loadedCount < source.length;
+      _hasMore = _loadedCount < _filteredMembers.length;
       _isLoadingMore = false;
     });
   }
@@ -216,7 +210,7 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
                   : Icons.light_mode,
             ),
             tooltip:
-                widget.themeMode == ThemeMode.dark ? 'ライトモードに切替' : 'ダークモードに切替',
+            widget.themeMode == ThemeMode.dark ? 'ライトモードに切替' : 'ダークモードに切替',
             onPressed: widget.onToggleTheme,
           ),
         ],
@@ -263,12 +257,12 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
                     ),
                     value: _selectedDataTime,
                     items:
-                        _dataTimeList.map((dt) {
-                          return DropdownMenuItem(
-                            value: dt,
-                            child: Text(dt.isEmpty ? '' : formatDataTime(dt)),
-                          );
-                        }).toList(),
+                    _dataTimeList.map((dt) {
+                      return DropdownMenuItem(
+                        value: dt,
+                        child: Text(dt.isEmpty ? '' : formatDataTime(dt)),
+                      );
+                    }).toList(),
                     onChanged: (value) {
                       setState(() {
                         _selectedDataTime = value;
@@ -293,12 +287,12 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
                     ),
                     value: _selectedRank,
                     items:
-                        _rankList.map((rank) {
-                          return DropdownMenuItem(
-                            value: rank,
-                            child: Text(rank),
-                          );
-                        }).toList(),
+                    _rankList.map((rank) {
+                      return DropdownMenuItem(
+                        value: rank,
+                        child: Text(rank),
+                      );
+                    }).toList(),
                     onChanged: (value) {
                       setState(() {
                         _selectedRank = value;
@@ -323,12 +317,12 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
                     ),
                     value: _selectedGender,
                     items:
-                        _genderList.map((gender) {
-                          return DropdownMenuItem(
-                            value: gender['value'],
-                            child: Text(gender['label']!),
-                          );
-                        }).toList(),
+                    _genderList.map((gender) {
+                      return DropdownMenuItem(
+                        value: gender['value'],
+                        child: Text(gender['label']!),
+                      );
+                    }).toList(),
                     onChanged: (value) {
                       setState(() {
                         _selectedGender = value;
@@ -386,9 +380,9 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
                         MaterialPageRoute(
                           builder:
                               (context) => MemberDetailPage(
-                                member: member,
-                                allMembers: _allMembers,
-                              ),
+                            member: member,
+                            allMembers: _allMembers,
+                          ),
                         ),
                       );
                     },
@@ -422,9 +416,9 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
                                   member['Rank'] ?? 'No Data',
                                   style: TextStyle(
                                     fontWeight:
-                                        (member['Rank'] == 'A1')
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
+                                    (member['Rank'] == 'A1')
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
                                   ),
                                 ),
                               ),
@@ -474,6 +468,12 @@ class _MemberSearchPageState extends State<MemberSearchPage> {
     );
   }
 }
+
+// --- 以下は(省略部なしで)MemberDetailPage, _LegendItem, formatDataTime関数等を元通り使用してください ---
+// 省略してよい場合は先のファイルのまま
+// ※ MemberDetailPageは大きく変更不要です
+
+// ...(MemberDetailPage以降はそのまま)...
 
 // ここから下、wrap_20250716_161332.txtの member 詳細画面部分を Map<String, dynamic>ベースに修正
 class MemberDetailPage extends StatefulWidget {
